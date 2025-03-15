@@ -1,230 +1,178 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import axios from 'axios';
+import ProfileHeader from './ProfileHeader';
+import ReadingPreferences from './ReadingPreferences';
+import SearchProfiles from './SearchProfiles';
+import SuggestedProfiles from './SuggestedProfiles';
 import { useGlobalContext } from '../../context';
 import './styles/UserProfile.css';
-import axios from 'axios';
 
 const UserProfile = () => {
-  const { user } = useGlobalContext();
-  const { userId } = useParams();
-  const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('all');
-  const [profile, setProfile] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedProfile, setEditedProfile] = useState(null);
+  const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
+  const [isOwnProfile, setIsOwnProfile] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
   
-  // Navigate to create profile if the user doesn't have a profile
+  const { userId } = useParams();
+  const { user: currentUser } = useGlobalContext();
+
   useEffect(() => {
-    if (user && !user.hasProfile && !userId) {
-      navigate('/create-profile', { replace: true });
-    }
-  }, [user, userId, navigate]);
-  
-  useEffect(() => {
-    const fetchProfile = async () => {
-      // Check if user is available
-      if (!userId && (!user || !user.id)) {
-        setError('User not found');
-        setLoading(false);
-        return;
-      }
-      
+    const fetchUserData = async () => {
       try {
-        const response = await axios.get(`/api/profile/${userId || user.id}`);
-        setProfile(response.data);
-        setEditedProfile(response.data);
-        setLoading(false);
-      } catch (err) {
-        console.error('Error fetching profile:', err);
+        setLoading(true);
+        // Use _id instead of id, and handle the case when viewing own profile
+        const idToFetch = userId || currentUser?._id;
+        
+        if (!idToFetch) {
+          throw new Error('No user ID available');
+        }
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+          throw new Error('No authentication token found');
+        }
+        
+        const response = await axios.get(`/api/users/${idToFetch}`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+        setUserData(response.data);
+        setIsOwnProfile(!userId || userId === currentUser?._id);
+        setIsFollowing(response.data.followers.includes(currentUser?._id));
+      } catch (error) {
         setError('Failed to load profile');
+        console.error('Error fetching user data:', error);
+      } finally {
         setLoading(false);
       }
     };
-    
-    fetchProfile();
-  }, [userId, user]);
 
-  const handleEditClick = () => {
-    setIsEditing(true);
-  };
+    if (currentUser) {
+      fetchUserData();
+    }
+  }, [userId, currentUser]);
 
-  const handleSave = async () => {
+  // Update other uses of currentUser.id to currentUser._id
+  const handleFollow = async () => {
     try {
-      // Check if user is available
-      if (!user || !user.id) {
-        setError('User not found');
-        return;
+      const endpoint = isFollowing ? 'unfollow' : 'follow';
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
       }
+
+      await axios.post(`/api/users/${userData._id}/${endpoint}`, {}, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
       
-      const response = await axios.put(`/api/profile/${user.id}`, editedProfile);
-      setProfile(response.data);
-      setIsEditing(false);
-    } catch (err) {
-      console.error('Error updating profile:', err);
-      setError('Failed to update profile');
+      setUserData(prev => ({
+        ...prev,
+        followers: isFollowing 
+          ? prev.followers.filter(id => id !== currentUser._id)
+          : [...prev.followers, currentUser._id]
+      }));
+      setIsFollowing(!isFollowing);
+    } catch (error) {
+      console.error('Error following/unfollowing user:', error);
     }
   };
 
-  const handleCancel = () => {
-    setEditedProfile(profile);
-    setIsEditing(false);
+  const handlePhotoChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('photo', file);
+
+    try {
+      const response = await axios.post(
+        `/api/users/${currentUser._id}/photo`,
+        formData, 
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          }
+        }
+      );
+      
+      setUserData(prev => ({
+        ...prev,
+        profilePhoto: response.data.photoUrl
+      }));
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+    }
   };
 
-  const handleChange = (e) => {
-    setEditedProfile({
-      ...editedProfile,
-      [e.target.name]: e.target.value
-    });
+
+  const handleGenreAdded = (updatedPreferences) => {
+    setUserData(prev => ({
+      ...prev,
+      readingPreferences: updatedPreferences
+    }));
   };
 
-  if (loading) return <div className="loading">Loading profile...</div>;
-  if (error) return <div className="error">{error}</div>;
-  if (!profile) return <div className="error">Profile not found</div>;
+  if (loading) {
+    return (
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
+        <p>Loading profile...</p>
+      </div>
+    );
+  }
 
-  const filteredBooks = activeTab === 'all' 
-    ? profile.books || []
-    : (profile.books || []).filter(book => book.status === activeTab);
+  if (error) {
+    return (
+      <div className="error-container">
+        <p>{error}</p>
+      </div>
+    );
+  }
+
+  if (!userData) {
+    return (
+      <div className="error-container">
+        <p>Profile not found</p>
+      </div>
+    );
+  }
 
   return (
     <div className="profile-container">
-      <h1 className="profile-title">Your Profile</h1>
-      
-      <div className="profile-card">
-        <div className="profile-header">
-          <div className="profile-avatar">
-            {profile.profilePhoto ? (
-              <img src={profile.profilePhoto} alt={profile.name} />
-            ) : (
-              <span>{profile.name && profile.name[0] ? profile.name[0].toUpperCase() : ''}</span>
-            )}
-          </div>
-          <div className="profile-info">
-            {isEditing ? (
-              <>
-                <input
-                  type="text"
-                  name="name"
-                  value={editedProfile.name || ''}
-                  onChange={handleChange}
-                  className="edit-input"
-                />
-                <input
-                  type="email"
-                  name="email"
-                  value={editedProfile.email || ''}
-                  onChange={handleChange}
-                  className="edit-input"
-                />
-                <div className="edit-actions">
-                  <button onClick={handleSave} className="save-btn">Save</button>
-                  <button onClick={handleCancel} className="cancel-btn">Cancel</button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h2 className="profile-name">{profile.name || 'No Name'}</h2>
-                <p className="profile-email">{profile.email || 'No Email'}</p>
-                {!userId && (  // Only show edit button on own profile
-                  <button onClick={handleEditClick} className="edit-btn">
-                    Edit Profile
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-        
-        {/* Display bio and website if available */}
-        {(profile.bio || profile.website) && (
-          <div className="profile-details">
-            {profile.bio && <p className="profile-bio">{profile.bio}</p>}
-            {profile.website && (
-              <p className="profile-website">
-                <a href={profile.website} target="_blank" rel="noopener noreferrer">
-                  {profile.website}
-                </a>
-              </p>
-            )}
-          </div>
-        )}
-        
-        {/* Display favorite genres if available */}
-        {profile.favoriteGenres && profile.favoriteGenres.length > 0 && (
-          <div className="profile-genres">
-            <h3>Favorite Genres</h3>
-            <div className="genre-tags">
-              {profile.favoriteGenres.map((genre, index) => (
-                <span key={index} className="genre-tag">{genre}</span>
-              ))}
-            </div>
-          </div>
-        )}
+      <ProfileHeader 
+        name={userData.name}
+        profilePic={userData.profilePhoto}
+        followers={userData.followers?.length || 0}
+        following={userData.following?.length || 0}
+        isOwnProfile={isOwnProfile}
+        onFollow={handleFollow}
+        onPhotoChange={handlePhotoChange}
+        isFollowing={isFollowing}
+      />
+
+      <div className="bio-section">
+        <h3>Bio</h3>
+        <p>{userData.bio || "No bio available"}</p>
       </div>
-      
-      <div className="books-section">
-        <h2 className="books-title">Your Books</h2>
-        
-        <div className="tabs">
-          <button 
-            onClick={() => setActiveTab('all')}
-            className={`tab ${activeTab === 'all' ? 'active' : ''}`}
-          >
-            All Books
-          </button>
-          <button 
-            onClick={() => setActiveTab('want-to-read')}
-            className={`tab ${activeTab === 'want-to-read' ? 'active' : ''}`}
-          >
-            Want to Read
-          </button>
-          <button 
-            onClick={() => setActiveTab('currently-reading')}
-            className={`tab ${activeTab === 'currently-reading' ? 'active' : ''}`}
-          >
-            Currently Reading
-          </button>
-          <button 
-            onClick={() => setActiveTab('read')}
-            className={`tab ${activeTab === 'read' ? 'active' : ''}`}
-          >
-            Read
-          </button>
-        </div>
-        
-        {!profile.books || filteredBooks.length === 0 ? (
-          <p className="no-books">
-            {activeTab === 'all' 
-              ? "You haven't added any books to your profile yet." 
-              : `You don't have any books marked as "${activeTab.replace('-', ' ')}".`}
-          </p>
-        ) : (
-          <div className="books-grid">
-            {filteredBooks.map(book => (
-              <div key={book.id} className="book-card">
-                <Link to={`/book/${book.id}`} className="book-title-link">
-                  <h3 className="book-title">{book.title}</h3>
-                </Link>
-                <p className="book-author">{book.author}</p>
-                <div className="book-status">
-                  <span className={`status-badge ${book.status}`}>
-                    {book.status === 'want-to-read' ? 'Want to Read' :
-                     book.status === 'currently-reading' ? 'Currently Reading' : 'Read'}
-                  </span>
-                </div>
-                <p className="book-updated">
-                  Updated: {book.updatedAt && typeof book.updatedAt === 'string' 
-                      ? new Date(book.updatedAt).toLocaleDateString() 
-                      : book.updatedAt instanceof Date 
-                          ? book.updatedAt.toLocaleDateString() 
-                          : 'Unknown'}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+
+      <ReadingPreferences 
+        preferences={userData.readingPreferences?.genres || []}
+        isOwnProfile={isOwnProfile}
+        onGenreAdded={handleGenreAdded}
+      />
+
+      {isOwnProfile && <SearchProfiles />}
+
+      <SuggestedProfiles 
+        currentUserId={currentUser?._id}
+        excludeIds={[userData._id]}
+      />
     </div>
   );
 };

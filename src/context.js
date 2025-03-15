@@ -1,6 +1,6 @@
 import React, { useState, useContext, useEffect, useCallback } from 'react';
 import coverImg from "./images/cover_not_found.jpg";
-import AuthService from './Login/auth';
+import { login as authLogin, register as authRegister, logout as authLogout, getCurrentUser, setAuthToken } from './Login/auth';
 
 const AppContext = React.createContext();
 
@@ -8,7 +8,8 @@ const URL = "https://www.googleapis.com/books/v1/volumes?q=";
 
 const getStoredUser = () => {
     try {
-        return AuthService.getUser() || null;
+        const token = localStorage.getItem('token');
+        return token ? JSON.parse(localStorage.getItem('user')) : null;
     } catch (error) {
         console.error('Error reading user from storage:', error);
         return null;
@@ -35,20 +36,28 @@ const AppProvider = ({ children }) => {
     const [isInitialized, setIsInitialized] = useState(false);
     const [authError, setAuthError] = useState(null);
 
-    // ✅ Initialize auth state on load
+    // Initialize auth state on load
     useEffect(() => {
         const initAuth = async () => {
             try {
-                const result = await AuthService.getCurrentUser();
-                if (result?.success) {
-                    setUser(result.data.user);
+                // Set auth token for axios if it exists
+                const token = localStorage.getItem('token');
+                if (token) {
+                    setAuthToken(token);
+                }
+                const currentUser = await getCurrentUser();
+                if (currentUser) {
+                    setUser(currentUser);
+                    localStorage.setItem('user', JSON.stringify(currentUser));
                 } else {
-                    AuthService.clearStorage();
+                    localStorage.removeItem('user');
+                    localStorage.removeItem('token');
                     setUser(null);
                 }
             } catch (error) {
                 console.error('Error initializing auth:', error);
-                AuthService.clearStorage();
+                localStorage.removeItem('user');
+                localStorage.removeItem('token');
                 setUser(null);
             } finally {
                 setIsInitialized(true);
@@ -58,12 +67,12 @@ const AppProvider = ({ children }) => {
         initAuth();
     }, []);
 
-    // ✅ Store recently viewed books in localStorage
+    // Store recently viewed books in localStorage
     useEffect(() => {
         localStorage.setItem('recentlyViewed', JSON.stringify(recentlyViewed));
     }, [recentlyViewed]);
 
-    // ✅ Add to recently viewed list
+    // Add to recently viewed list
     const addToRecentlyViewed = useCallback((book) => {
         setRecentlyViewed((prev) => {
             const filtered = prev.filter((b) => b.id !== book.id);
@@ -71,60 +80,67 @@ const AppProvider = ({ children }) => {
         });
     }, []);
 
-    // ✅ Login User
-    // ✅ Login User
-    const login = useCallback(async (username, password) => {
+    // Login User
+    const login = useCallback(async (email, password) => {
         setAuthError(null);
         try {
-            const result = await AuthService.login(username, password);
-            if (result?.success) {
-                setUser(result.data.user);
+            const result = await authLogin({ email, password });
+            if (result?.user) {
+                setUser(result.user);
+                localStorage.setItem('user', JSON.stringify(result.user));
+                // Set auth token after successful login
+                if (result.token) {
+                    setAuthToken(result.token);
+                }
                 return { success: true };
             }
-            const errorMsg = result.error || "Login failed";
-            setAuthError(errorMsg);
-            return { success: false, error: errorMsg };
+            throw new Error('Login failed');
         } catch (error) {
             console.error('Login error:', error);
-            const errorMsg = 'Login failed. Try again.';
+            const errorMsg = error.message || 'Login failed. Please try again.';
             setAuthError(errorMsg);
             return { success: false, error: errorMsg };
         }
     }, []);
 
-    // ✅ Register User
-    const register = useCallback(async (email, username, password) => {
+    // Register User
+    const register = useCallback(async (name, email, password) => {
         setAuthError(null);
         try {
-            const result = await AuthService.register(email, username, password);
-            if (result?.success) {
-                setUser(result.data.user);
+            const result = await authRegister({ name, email, password });
+            if (result?.user) {
+                setUser(result.user);
+                localStorage.setItem('user', JSON.stringify(result.user));
+                // Set auth token after successful registration
+                if (result.token) {
+                    setAuthToken(result.token);
+                }
                 return { success: true };
             }
-            const errorMsg = result.error || "Registration failed";
-            setAuthError(errorMsg);
-            return { success: false, error: errorMsg };
+            throw new Error('Registration failed');
         } catch (error) {
             console.error('Registration error:', error);
-            const errorMsg = 'Registration failed. Try again.';
+            const errorMsg = error.message || 'Registration failed. Please try again.';
             setAuthError(errorMsg);
             return { success: false, error: errorMsg };
         }
     }, []);
 
-    // ✅ Logout User
+    // Logout User
     const logout = useCallback(async () => {
         try {
-            await AuthService.logout();
-        } catch (error) {
-            console.error('Logout error:', error);
-        } finally {
+            authLogout();
+            localStorage.removeItem('user');
             setUser(null);
             setRecentlyViewed([]);
+            // Clear auth token on logout
+            setAuthToken(null);
+        } catch (error) {
+            console.error('Logout error:', error);
         }
     }, []);
 
-    // ✅ Search Books
+    // Search Books
     useEffect(() => {
         if (!searchTerm) return;
 

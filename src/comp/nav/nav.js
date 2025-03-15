@@ -28,7 +28,7 @@ const Navbar = () => {
     if (searchQuery.trim()) {
       setSearchTerm(searchQuery);
       setResultTitle(`Search results for "${searchQuery}"`);
-      navigate('/book');
+      navigate('/books');
       setSearchQuery('');
       setShowFilters(false);
     }
@@ -143,8 +143,8 @@ const Navbar = () => {
       <nav className="navbar">
         <ul className="nav-links">
           <li><Link to="/">Home</Link></li>
-          <li><Link to="/community">Community</Link></li>
-          <li><Link to="/community/profile">Profile</Link></li>
+          <li><Link to="/profile">Profile</Link></li>
+          <li><Link to="/chats">Chats</Link></li>
           <li><button onClick={logout} className="nav-logout-btn">Logout</button></li>
         </ul>
       </nav>
@@ -173,7 +173,9 @@ const Navbar = () => {
         className={`dropdown_menu ${isDropdownOpen ? 'open' : ''}`}
       >
         <ul>
-          <li><Link to="/settings">Settings</Link></li>
+          <li><Link to="/">Home</Link></li>
+          <li><Link to="/profile">Profile</Link></li>
+          <li><Link to="/chats">Chats</Link></li>
           <li><button onClick={logout} className="logout-btn">Logout</button></li>
         </ul>
       </div>
@@ -185,8 +187,8 @@ const Navbar = () => {
       >
         <ul>
           <li><Link to="/">Home</Link></li>
-          <li><Link to="/community">Community</Link></li>
           <li><Link to="/profile">Profile</Link></li>
+          <li><Link to="/chats">Chats</Link></li>
           <li><button onClick={logout} className="nav-logout-btn">Logout</button></li>
         </ul>
       </div>
